@@ -1,95 +1,74 @@
-import os
 import requests
 import sys
+import json
 
 def revisar_lluvia():
-    # 1. OBTENER API KEY (debe coincidir exactamente con tu YAML)
-    API_KEY = os.getenv('OWM_API_KEY')
+    # NO necesitas API key con wttr.in
+    ciudad = "Santiago,Chile"  # Usá ciudad y país para precisión
     
-    # 2. DEBUG INICIAL - NO BORRAR hasta que funcione
-    print("=" * 50)
-    print("🔍 VERIFICACIÓN DE CONFIGURACIÓN")
-    print("=" * 50)
-    print(f"• Variable OWM_API_KEY configurada: {'✅ SÍ' if API_KEY else '❌ NO'}")
-    
-    if not API_KEY:
-        print("\n❌ ERROR CRÍTICO: La API key no está llegando al script.")
-        print("  → Revisá que el secreto en GitHub se llame exactamente: OWM_API_KEY")
-        print("  → La ejecución se detiene aquí.")
-        sys.exit(1)  # Detiene el workflow con error
-    
-    print(f"• API Key (oculta): {API_KEY[:5]}...{API_KEY[-5:]}")
-    
-    # 3. CONFIGURAR LA LLAMADA A LA API
-    url = "https://api.openweathermap.org/data/2.5/onecall"
-    params = {
-        'lat': -33.4489,  # Santiago de Chile (cambiá si necesitás otra ubicación)
-        'lon': -70.6693,
-        'appid': API_KEY,
-        'units': 'metric',
-        'lang': 'es',
-        'exclude': 'current,minutely,daily,alerts'  # Opcional: reduce el tamaño
-    }
-    
-    print(f"\n• URL solicitada: {url}")
-    print(f"• Parámetros: {params}")
-    
-    # 4. HACER LA PETICIÓN
     try:
-        response = requests.get(url, params=params, timeout=15)
-        print(f"\n📡 Status Code: {response.status_code}")
+        # URL de wttr.in con formato JSON
+        url = f"https://wttr.in/{ciudad}?format=j1"
         
-        # Convertir a JSON
-        resp = response.json()
-        print(f"📦 Respuesta completa: {resp}")
+        print(f"🔍 Consultando clima para: {ciudad}")
+        print(f"📡 URL: {url}")
+        
+        # Hacer la petición
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()  # Lanza error si status != 200
+        
+        # Parsear JSON
+        data = response.json()
+        
+        # Debug: mostrar estructura completa (útil para ver qué hay)
+        print(f"📦 Respuesta completa:\n{json.dumps(data, indent=2)}")
+        
+        # Obtener datos actuales
+        current = data.get("current_condition", [{}])[0]
+        temp_actual = current.get("temp_C", "N/A")
+        humedad = current.get("humidity", "N/A")
+        chance_rain_hoy = current.get("chanceofrain", "N/A")
+        
+        print(f"\n🌡️ Temperatura actual: {temp_actual}°C")
+        print(f"💧 Humedad: {humedad}%")
+        print(f"🌧️ Probabilidad lluvia HOY: {chance_rain_hoy}%")
+        
+        # Obtener datos por hora (forecast)
+        # wttr.in devuelve 3 días de datos, tomamos el primero
+        forecast = data.get("weather", [{}])[0]
+        hourly_data = forecast.get("hourly", [])
+        
+        print(f"\n⏰ Próximas 6 horas:")
+        alertas = 0
+        
+        for i, hour in enumerate(hourly_data[:6]):
+            # wttr.in usa 'chanceofrain' como string
+            pop = int(hour.get("chanceofrain", "0"))
+            temp = hour.get("tempC", "N/A")
+            hora_local = hour.get("time", "N/A")
+            
+            print(f"   {hora_local}: Temp {temp}°C - Lluvia {pop}%")
+            
+            if pop > 50:
+                alertas += 1
+        
+        # Resumen final
+        print(f"\n{'='*50}")
+        if alertas > 0:
+            print(f"⚠️  ALERTA: {alertas} horas con >50% probabilidad de lluvia")
+            sys.exit(1)  # Marca el workflow como "fallido" para que lo veas
+        else:
+            print("✅ No se esperan lluvias fuertes en las próximas 6 horas")
+        print(f"{'='*50}")
         
     except requests.exceptions.RequestException as e:
-        print(f"\n❌ ERROR DE CONEXIÓN: {e}")
+        print(f"❌ Error de conexión: {e}")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ ERROR INESPERADO: {e}")
+        print(f"❌ Error inesperado: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
-    
-    # 5. VERIFICAR QUE EXISTE 'HOURLY'
-    if "hourly" not in resp:
-        print(f"\n❌ KeyError: 'hourly' no existe en la respuesta")
-        print(f"   Claves disponibles: {list(resp.keys())}")
-        
-        # Mensaje específico según el error común
-        if resp.get('cod') == 401:
-            print("\n💡 SOLUCIÓN: API Key inválida. Regenerala en OpenWeatherMap")
-        elif resp.get('cod') == 429:
-            print("\n💡 SOLUCIÓN: Límite de llamadas excedido. Esperá 10 min o usa key de pago")
-        elif 'message' in resp:
-            print(f"\n💡 Mensaje de la API: {resp['message']}")
-        
-        sys.exit(1)
-    
-    print(f"\n✅ 'hourly' encontrado con {len(resp['hourly'])} registros")
-    
-    # 6. PROCESAR DATOS (tu lógica original)
-    print("\n" + "=" * 50)
-    print("🌧️  ANÁLISIS DE LLUVIA")
-    print("=" * 50)
-    
-    alertas_encontradas = 0
-    
-    for i, hour in enumerate(resp["hourly"][:12]):  # Próximas 12 horas
-        pop = hour.get("pop", 0)  # Probability of Precipitation (0-1)
-        temp = hour.get("temp", 0)
-        time = hour.get("dt", 0)  # Timestamp
-        
-        if pop > 0.5:  # Más del 50% de probabilidad
-            print(f"⏰ Hora {i}: ⚠️  ALERTA - Prob. lluvia: {pop*100:.0f}% - Temp: {temp}°C")
-            alertas_encontradas += 1
-    
-    # 7. RESUMEN FINAL
-    print("\n" + "=" * 50)
-    if alertas_encontradas == 0:
-        print("✅ No se esperan lluvias fuertes en las próximas horas")
-    else:
-        print(f"⚠️  Se encontraron {alertas_encontradas} períodos con alta probabilidad de lluvia")
-    print("=" * 50)
 
 if __name__ == "__main__":
     revisar_lluvia()
