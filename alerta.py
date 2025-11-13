@@ -4,7 +4,7 @@ import json
 
 def revisar_lluvia():
     # NO necesitas API key con wttr.in
-    ciudad = "Santiago,Chile"  # Usá ciudad y país para precisión
+    ciudad = "Barrancabermeja,Colombia"  # Usá ciudad y país para precisión
     
     try:
         # URL de wttr.in con formato JSON
