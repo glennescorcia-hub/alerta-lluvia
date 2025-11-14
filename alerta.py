@@ -29,10 +29,10 @@ def enviar_telegram(mensaje):
 
 def revisar_lluvia():
     # === MODO PRUEBA 6 AM: Descomentá para probar ahora ===
-    # hora_actual = 6
+    hora_actual = 6
     
     # === MODO AUTOMÁTICO ===
-    hora_actual = (datetime.utcnow() - timedelta(hours=5)).hour
+    # hora_actual = (datetime.utcnow() - timedelta(hours=5)).hour
     
     print(f"="*60)
     print(f"🔍 BARRANCABERMEJA - Hora Colombia: {hora_actual:02d}:00")
