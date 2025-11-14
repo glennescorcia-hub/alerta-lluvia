@@ -1,9 +1,9 @@
-name: Alerta Lluvia Barrancabermeja
+name: Alerta Lluvia Inteligente
 
 on:
   schedule:
-    # Cada 30 minutos
-    - cron: '*/30 * * * *'
+    # Cada hora en punto (para detectar "1 hora antes" con precisión)
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
       - name: Instalar requests
         run: pip install requests
       
-      - name: Ejecutar alerta
+      - name: Ejecutar alerta inteligente
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
