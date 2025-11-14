@@ -51,9 +51,9 @@ def revisar_lluvia():
     
     # === MODO PRUEBA: FORZAR 6 AM ===
     # Para probar ahora mismo, descomentá la siguiente línea:
-    hora_actual = 6
+    # hora_actual = 6
     # Y comentá la línea normal:
-    # hora_actual = (datetime.utcnow() - timedelta(hours=5)).hour
+    hora_actual = (datetime.utcnow() - timedelta(hours=5)).hour
     
     print(f"🕐 Hora detectada: {hora_actual:02d}:00 (Colombia)")
     
