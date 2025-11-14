@@ -3,7 +3,7 @@ name: Alerta Lluvia Inteligente
 on:
   schedule:
     # Cada hora en punto (para detectar "1 hora antes" con precisión)
-    - cron: '0 * * * *'
+    - cron: '0 11 * * *'  # 11:00 UTC = 06:00 Colombia
   workflow_dispatch:
 
 jobs:
