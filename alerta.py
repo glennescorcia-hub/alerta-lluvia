@@ -1,7 +1,7 @@
 import os
 import requests
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def enviar_telegram(mensaje):
     """Envía mensaje Telegram"""
@@ -28,24 +28,26 @@ def enviar_telegram(mensaje):
         return False
 
 def revisar_lluvia():
+    ciudad = "Barrancabermeja,Colombia"
+    
     # === MODO PRUEBA: FORZAR 6 AM ===
     # Descomentá esta línea para probar ahora:
     # hora_actual = 6
     
     # === MODO AUTOMÁTICO ===
-    hora_actual = (datetime.utcnow() - datetime.timedelta(hours=5)).hour
+    hora_actual = (datetime.utcnow() - timedelta(hours=5)).hour  # <<< CORREGIDO: timedelta directo
     
     print(f"🔍 Barrancabermeja - Hora Colombia: {hora_actual:02d}:00")
     
     try:
-        # Datos de wttr.in (siempre en UTC)
-        url = "https://wttr.in/Barrancabermeja,Colombia?format=j1"
+        # Obtener datos de wttr.in
+        url = f"https://wttr.in/{ciudad}?format=j1"
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         
         data = response.json()
         
-        # Obtener datos actuales
+        # Datos actuales
         current = data["current_condition"][0]
         precip_hoy = float(current.get("precipMM", 0))
         chance_hoy = current.get("chanceofrain")
@@ -56,17 +58,9 @@ def revisar_lluvia():
         
         print(f"🌧️ HOY: {precip_hoy}mm - Probabilidad: {chance_hoy}%")
         
-        # Obtener datos horarios
+        # Datos horarios
         forecast = data["weather"][0]
         hourly_data = forecast["hourly"]
-        
-        # Convertir hora UTC a Colombia
-        ahora_utc = datetime.utcnow()
-        ahora_col = ahora_utc.hour - 5  # Restar 5 horas (UTC-5)
-        if ahora_col < 0:
-            ahora_col += 24  # Ajustar si pasa de medianoche
-        
-        print(f"🌐 Hora actual UTC: {ahora_utc.hour:02d}:00 -> Colombia: {ahora_col:02d}:00")
         
         # === LÓGICA DE ENVÍO ===
         mensaje = None
@@ -75,64 +69,63 @@ def revisar_lluvia():
         if hora_actual == 6:
             print("🌅 MODO: Resumen matutino")
             mensaje = f"🌧️ *Resumen Matutino - Barrancabermeja*\n\n"
-            mensaje += f"📅 HOY:\n• Precipitación: {precip_hoy}mm\n• Probabilidad: {chance_hoy}%\n\n"
+            mensaje += f"📅 HOY:\n• Precip: {precip_hoy}mm\n• Probabilidad: {chance_hoy}%\n\n"
             
-            # Listar todas las horas con riesgo HOY
-            horas_alertas = []
-            for hour in hourly_data:
+            horas_riesgo = []
+            for hour in hourly_data[:12]:  # Solo 12 horas futuras
                 precip = float(hour.get("precipMM", 0))
                 chance = hour.get("chanceofrain")
-                hora_utc = int(hour["time"])
-                
                 if chance is None:
                     chance = 100 if precip > 0 else 0
                 else:
                     chance = int(chance)
                 
-                # Solo incluir si hay riesgo
+                # Solo si hay riesgo
                 if chance > 50 or precip > 0.5:
-                    # Convertir hora UTC a Colombia
-                    hora_col = hora_utc - 500  # Restar 5 horas (en formato HH00)
+                    hora_utc = int(hour["time"])
+                    # Convertir UTC a Colombia (-5 horas)
+                    hora_col = hora_utc - 500
                     if hora_col < 0:
                         hora_col += 2400
-                    hora_str = f"{hora_col:04d}"
-                    horas_alertas.append(f"⏰ {hora_str}: *Precip {precip}mm ({chance}%)*")
+                    horas_riesgo.append(f"⏰ {hora_col:04d}: *Precip {precip}mm ({chance}%)*")
             
-            if horas_alertas:
-                mensaje += "⚠️ *Horas con riesgo:*\n" + "\n".join(horas_alertas[:12])
+            if horas_riesgo:
+                mensaje += "⚠️ *Horas con riesgo:*\n" + "\n".join(horas_riesgo)
             else:
                 mensaje += "✅ No se esperan lluvias significativas hoy"
         
         # CRITERIO 2: Alerta 1 hora antes
-        elif hora_actual != 6:
+        else:
             print("🔍 MODO: Alerta anticipada")
             
-            # Buscar lluvia en la próxima hora
+            # Buscar si hay lluvia en la próxima hora
             for hour in hourly_data:
                 precip = float(hour.get("precipMM", 0))
                 chance = hour.get("chanceofrain")
-                hora_utc = int(hour["time"])
-                
                 if chance is None:
                     chance = 100 if precip > 0 else 0
                 else:
                     chance = int(chance)
                 
-                # ¿Es esta hora la próxima hora de lluvia?
-                hora_col = hora_utc - 500
-                if hora_col < 0:
-                    hora_col += 2400
-                
-                # Comparar solo horas (ignorar minutos)
-                if 0 <= (hora_col // 100) - ahora_col <= 1:  # Falta 0 a 1 hora
-                    if chance > 50 or precip > 0.5:
+                # Solo si hay riesgo
+                if chance > 50 or precip > 0.5:
+                    hora_utc = int(hour["time"])
+                    hora_col = hora_utc - 500
+                    if hora_col < 0:
+                        hora_col += 2400
+                    
+                    # Obtener hora numérica para comparar
+                    hora_col_num = hora_col // 100
+                    
+                    # ¿Falta exactamente 1 hora?
+                    if hora_col_num == (hora_actual + 1) % 24:
                         print(f"⚠️ Alerta inminente detectada: {hora_col:04d}")
                         mensaje = f"⏰ *Alerta Inminente - Barrancabermeja*\n\n"
-                        mensaje += f"¡Lluvia intensa en aproximadamente 1 hora!\n\n"
+                        mensaje += f"¡Lluvia intensa en ~1 hora!\n\n"
                         mensaje += f"⏰ Hora {hora_col:04d}: *Precip {precip}mm ({chance}%)*"
                         break  # Solo la primera alerta
         
-        # CRITERIO 3: Sin nada que reportar
+        # CRITERIO 3: Sin alertas
         if mensaje is None:
             print("✅ Sin condiciones de alerta")
             sys.exit(0)
