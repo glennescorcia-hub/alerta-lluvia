@@ -27,6 +27,25 @@ def enviar_telegram(mensaje):
         print(f"❌ Telegram Error: {e}")
         return False
 
+def convertir_hora_utc_a_colombia(hora_utc_int):
+    """
+    Convierte hora UTC (formato 600, 1200, 1800) a hora Colombia
+    Devuelve tupla: (hora_formato, hora_numero) ej: ("06:00", 6)
+    """
+    # Restar 5 horas (UTC-5)
+    hora_col_int = hora_utc_int - 500
+    
+    # Manejar cambio de día
+    if hora_col_int < 0:
+        hora_col_int += 2400
+    
+    # Formato legible HH:MM
+    horas = hora_col_int // 100
+    minutos = hora_col_int % 100
+    hora_formateada = f"{horas:02d}:{minutos:02d}"
+    
+    return hora_formateada, horas
+
 def revisar_lluvia():
     # === MODO PRUEBA 6 AM: Descomentá para probar ahora ===
     # hora_actual = 6
@@ -83,15 +102,13 @@ def revisar_lluvia():
                 else:
                     chance = int(chance)
                 
-                # Convertir hora UTC a Colombia
-                hora_col = hora_utc - 500
-                if hora_col < 0:
-                    hora_col += 2400
+                # Convertir hora
+                hora_str, hora_num = convertir_hora_utc_a_colombia(hora_utc)
                 
-                print(f"  [{i}] Hora {hora_col:04d}: Precip {precip}mm - Prob {chance}%")
+                print(f"  [{i}] {hora_str}: Precip {precip}mm - Prob {chance}%")
                 
                 if chance > 50 or precip > 0.5:
-                    horas_riesgo.append(f"⏰ {hora_col:04d}: *Precip {precip}mm ({chance}%)*")
+                    horas_riesgo.append(f"⏰ {hora_str}: *Precip {precip}mm ({chance}%)*")
             
             if horas_riesgo:
                 mensaje += "⚠️ *Horas con riesgo:*\n" + "\n".join(horas_riesgo)
@@ -102,7 +119,8 @@ def revisar_lluvia():
         else:
             print("🔍 MODO: Buscando lluvia en próxima hora...")
             
-            # Buscar en el próximo periodo
+            hora_siguiente = (hora_actual + 1) % 24
+            
             for i, hour in enumerate(hourly_data):
                 precip = float(hour.get("precipMM", 0))
                 chance = hour.get("chanceofrain")
@@ -113,25 +131,18 @@ def revisar_lluvia():
                 else:
                     chance = int(chance)
                 
-                # Convertir hora UTC a Colombia
-                hora_col = hora_utc - 500
-                if hora_col < 0:
-                    hora_col += 2400
+                # Convertir hora
+                hora_str, hora_num = convertir_hora_utc_a_colombia(hora_utc)
                 
-                # Obtener solo la hora numérica (0-23)
-                hora_col_num = hora_col // 100
+                print(f"  [{i}] {hora_str} (hora: {hora_num}) - Precip {precip}mm - Prob {chance}%")
                 
-                # DEBUG: Mostrar cada hora
-                print(f"  [{i}] Hora {hora_col:04d} (num: {hora_col_num}) - Precip {precip}mm - Prob {chance}%")
-                
-                # Evaluar si falta EXACTAMENTE 1 hora
-                hora_siguiente = (hora_actual + 1) % 24
-                if hora_col_num == hora_siguiente and (chance > 50 or precip > 0.5):
+                # ¿Falta exactamente 1 hora?
+                if hora_num == hora_siguiente and (chance > 50 or precip > 0.5):
                     print(f"  ✓ ALERTA DETECTADA: Lluvia a las {hora_siguiente:02d}:00")
                     mensaje = f"⏰ *Alerta Inminente - Barrancabermeja*\n\n"
                     mensaje += f"¡Lluvia intensa en ~1 hora!\n\n"
-                    mensaje += f"⏰ Hora {hora_col:04d}: *Precip {precip}mm ({chance}%)*"
-                    break  # Solo la primera alerta
+                    mensaje += f"⏰ {hora_str}: *Precip {precip}mm ({chance}%)*"
+                    break
         
         # CRITERIO 3: Sin alertas
         if mensaje is None:
