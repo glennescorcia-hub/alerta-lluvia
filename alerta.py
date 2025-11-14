@@ -28,20 +28,19 @@ def enviar_telegram(mensaje):
         return False
 
 def revisar_lluvia():
-    ciudad = "Barrancabermeja,Colombia"
-    
-    # === MODO PRUEBA: FORZAR 6 AM ===
-    # Descomentá esta línea para probar ahora:
+    # === MODO PRUEBA 6 AM: Descomentá para probar ahora ===
     # hora_actual = 6
     
     # === MODO AUTOMÁTICO ===
-    hora_actual = (datetime.utcnow() - timedelta(hours=5)).hour  # <<< CORREGIDO: timedelta directo
+    hora_actual = (datetime.utcnow() - timedelta(hours=5)).hour
     
-    print(f"🔍 Barrancabermeja - Hora Colombia: {hora_actual:02d}:00")
+    print(f"="*60)
+    print(f"🔍 BARRANCABERMEJA - Hora Colombia: {hora_actual:02d}:00")
+    print(f"="*60)
     
     try:
-        # Obtener datos de wttr.in
-        url = f"https://wttr.in/{ciudad}?format=j1"
+        # Datos de wttr.in
+        url = f"https://wttr.in/Barrancabermeja,Colombia?format=j1"
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         
@@ -56,7 +55,7 @@ def revisar_lluvia():
         else:
             chance_hoy = int(chance_hoy)
         
-        print(f"🌧️ HOY: {precip_hoy}mm - Probabilidad: {chance_hoy}%")
+        print(f"🌧️ CONDICIÓN ACTUAL: {precip_hoy}mm - Probabilidad: {chance_hoy}%")
         
         # Datos horarios
         forecast = data["weather"][0]
@@ -69,24 +68,29 @@ def revisar_lluvia():
         if hora_actual == 6:
             print("🌅 MODO: Resumen matutino")
             mensaje = f"🌧️ *Resumen Matutino - Barrancabermeja*\n\n"
-            mensaje += f"📅 HOY:\n• Precip: {precip_hoy}mm\n• Probabilidad: {chance_hoy}%\n\n"
+            mensaje += f"📅 HOY:\n• Precipitación: {precip_hoy}mm\n• Probabilidad: {chance_hoy}%\n\n"
             
+            print("📊 Analizando próximas 12 horas...")
             horas_riesgo = []
-            for hour in hourly_data[:12]:  # Solo 12 horas futuras
+            
+            for i, hour in enumerate(hourly_data[:12]):
                 precip = float(hour.get("precipMM", 0))
                 chance = hour.get("chanceofrain")
+                hora_utc = int(hour["time"])
+                
                 if chance is None:
                     chance = 100 if precip > 0 else 0
                 else:
                     chance = int(chance)
                 
-                # Solo si hay riesgo
+                # Convertir hora UTC a Colombia
+                hora_col = hora_utc - 500
+                if hora_col < 0:
+                    hora_col += 2400
+                
+                print(f"  [{i}] Hora {hora_col:04d}: Precip {precip}mm - Prob {chance}%")
+                
                 if chance > 50 or precip > 0.5:
-                    hora_utc = int(hour["time"])
-                    # Convertir UTC a Colombia (-5 horas)
-                    hora_col = hora_utc - 500
-                    if hora_col < 0:
-                        hora_col += 2400
                     horas_riesgo.append(f"⏰ {hora_col:04d}: *Precip {precip}mm ({chance}%)*")
             
             if horas_riesgo:
@@ -96,34 +100,38 @@ def revisar_lluvia():
         
         # CRITERIO 2: Alerta 1 hora antes
         else:
-            print("🔍 MODO: Alerta anticipada")
+            print("🔍 MODO: Buscando lluvia en próxima hora...")
             
-            # Buscar si hay lluvia en la próxima hora
-            for hour in hourly_data:
+            # Buscar en el próximo periodo
+            for i, hour in enumerate(hourly_data):
                 precip = float(hour.get("precipMM", 0))
                 chance = hour.get("chanceofrain")
+                hora_utc = int(hour["time"])
+                
                 if chance is None:
                     chance = 100 if precip > 0 else 0
                 else:
                     chance = int(chance)
                 
-                # Solo si hay riesgo
-                if chance > 50 or precip > 0.5:
-                    hora_utc = int(hour["time"])
-                    hora_col = hora_utc - 500
-                    if hora_col < 0:
-                        hora_col += 2400
-                    
-                    # Obtener hora numérica para comparar
-                    hora_col_num = hora_col // 100
-                    
-                    # ¿Falta exactamente 1 hora?
-                    if hora_col_num == (hora_actual + 1) % 24:
-                        print(f"⚠️ Alerta inminente detectada: {hora_col:04d}")
-                        mensaje = f"⏰ *Alerta Inminente - Barrancabermeja*\n\n"
-                        mensaje += f"¡Lluvia intensa en ~1 hora!\n\n"
-                        mensaje += f"⏰ Hora {hora_col:04d}: *Precip {precip}mm ({chance}%)*"
-                        break  # Solo la primera alerta
+                # Convertir hora UTC a Colombia
+                hora_col = hora_utc - 500
+                if hora_col < 0:
+                    hora_col += 2400
+                
+                # Obtener solo la hora numérica (0-23)
+                hora_col_num = hora_col // 100
+                
+                # DEBUG: Mostrar cada hora
+                print(f"  [{i}] Hora {hora_col:04d} (num: {hora_col_num}) - Precip {precip}mm - Prob {chance}%")
+                
+                # Evaluar si falta EXACTAMENTE 1 hora
+                hora_siguiente = (hora_actual + 1) % 24
+                if hora_col_num == hora_siguiente and (chance > 50 or precip > 0.5):
+                    print(f"  ✓ ALERTA DETECTADA: Lluvia a las {hora_siguiente:02d}:00")
+                    mensaje = f"⏰ *Alerta Inminente - Barrancabermeja*\n\n"
+                    mensaje += f"¡Lluvia intensa en ~1 hora!\n\n"
+                    mensaje += f"⏰ Hora {hora_col:04d}: *Precip {precip}mm ({chance}%)*"
+                    break  # Solo la primera alerta
         
         # CRITERIO 3: Sin alertas
         if mensaje is None:
@@ -131,12 +139,12 @@ def revisar_lluvia():
             sys.exit(0)
         
         # Enviar mensaje
-        print(f"\nMensaje:\n{mensaje}\n")
+        print(f"\nMensaje a enviar:\n{mensaje}\n")
         enviar_telegram(mensaje)
         sys.exit(0)
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error crítico: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(0)
