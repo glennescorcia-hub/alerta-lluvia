@@ -1,10 +1,9 @@
-name: Alerta Lluvia Inteligente
+name: Alerta de Lluvia
 
 on:
   schedule:
-    # Cada hora en punto (para detectar "1 hora antes" con precisión)
-    - cron: '0 11 * * *'  # 11:00 UTC = 06:00 Colombia
-  workflow_dispatch:
+    - cron: '0 * * * *'  # Cada hora, en el minuto 0
+  workflow_dispatch:     # Para pruebas manuales
 
 jobs:
   alert:
@@ -12,17 +11,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      
-      - name: Instalar requests
-        run: pip install requests
-      
-      - name: Ejecutar alerta inteligente
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Ejecutar alerta
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python alerta.py
+          CIUDAD: "Barrancabermeja,Colombia"   # Opcional: cambia si quieres otra ciudad
+          UMBRAL_LLUVIA: "50"                  # Opcional: valor por defecto es 50
+        run: python rain_alert.py
