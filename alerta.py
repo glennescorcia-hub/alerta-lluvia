@@ -4,12 +4,12 @@ import sys
 from datetime import datetime, timedelta
 
 def enviar_telegram(mensaje):
-    """Envía mensaje Telegram"""
+    """Envía mensaje a Telegram"""
     token = os.getenv('TELEGRAM_TOKEN')
     chat_id = os.getenv('CHAT_ID')
     
     if not token or not chat_id:
-        print("❌ Secrets no configurados")
+        print("❌ Secrets no configurados: TELEGRAM_TOKEN y/o CHAT_ID faltantes")
         return False
     
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -19,146 +19,128 @@ def enviar_telegram(mensaje):
         response = requests.post(url, json=payload, timeout=10)
         print(f"Telegram Status: {response.status_code}")
         if response.status_code != 200:
-            print(f"Error: {response.text}")
+            print(f"Error en Telegram: {response.text}")
             return False
-        print("✅ Mensaje enviado")
+        print("✅ Mensaje de alerta enviado por Telegram")
         return True
     except Exception as e:
-        print(f"❌ Telegram Error: {e}")
+        print(f"❌ Error al enviar por Telegram: {e}")
         return False
 
-def convertir_hora_utc_a_colombia(hora_utc_int):
+def parse_wttr_hour(time_str):
     """
-    Convierte hora UTC (formato 600, 1200, 1800) a hora Colombia
-    Devuelve tupla: (hora_formato, hora_numero) ej: ("06:00", 6)
+    Convierte el campo 'time' de wttr.in (ej. '0', '600', '1230') a (hora_utc, minuto_utc).
+    Devuelve (h, m) o (None, None) si inválido.
     """
-    # Restar 5 horas (UTC-5)
-    hora_col_int = hora_utc_int - 500
-    
-    # Manejar cambio de día
-    if hora_col_int < 0:
-        hora_col_int += 2400
-    
-    # Formato legible HH:MM
-    horas = hora_col_int // 100
-    minutos = hora_col_int % 100
-    hora_formateada = f"{horas:02d}:{minutos:02d}"
-    
-    return hora_formateada, horas
+    if not isinstance(time_str, str) or not time_str.isdigit():
+        return None, None
+    time_clean = time_str.strip()
+    if not time_clean:
+        return None, None
+
+    time_padded = time_clean.zfill(4)
+    if len(time_padded) > 4:
+        return None, None
+
+    try:
+        h = int(time_padded[:2])
+        m = int(time_padded[2:])
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h, m
+    except (ValueError, IndexError):
+        pass
+    return None, None
+
+def utc_to_colombia_hour(h_utc, m_utc):
+    """
+    Convierte hora UTC a hora en Colombia (UTC-5), devolviendo solo la hora (0-23).
+    Asume que la fecha es la misma o ajusta si cruza medianoche.
+    """
+    total_minutes = h_utc * 60 + m_utc
+    total_minutes_col = (total_minutes - 5 * 60) % (24 * 60)
+    return total_minutes_col // 60  # solo la hora (0-23)
 
 def revisar_lluvia():
-    # === MODO PRUEBA 6 AM: Descomentá para probar ahora ===
-    # hora_actual = 6
-    
-    # === MODO AUTOMÁTICO ===
-    hora_actual = (datetime.utcnow() - timedelta(hours=5)).hour
-    
-    print(f"="*60)
-    print(f"🔍 BARRANCABERMEJA - Hora Colombia: {hora_actual:02d}:00")
-    print(f"="*60)
-    
+    CIUDAD = os.getenv("CIUDAD", "Barrancabermeja,Colombia")
+    UMBRAL_LLUVIA = int(os.getenv("UMBRAL_LLUVIA", "50"))
+
+    # Hora actual en Colombia (UTC-5)
+    ahora_col = datetime.utcnow() - timedelta(hours=5)
+    hora_actual = ahora_col.hour  # 0-23
+    hora_objetivo = (hora_actual + 1) % 24  # próxima hora completa
+
+    print("=" * 60)
+    print(f"🔍 Ciudad: {CIUDAD}")
+    print(f"🕒 Hora actual en Colombia: {hora_actual:02d}:00")
+    print(f"🎯 Buscando lluvia a las: {hora_objetivo:02d}:00 (≥{UMBRAL_LLUVIA}%)")
+    print("=" * 60)
+
     try:
-        # Datos de wttr.in
-        url = f"https://wttr.in/Barrancabermeja,Colombia?format=j1"
+        url = f"https://wttr.in/{CIUDAD}?format=j1"
         response = requests.get(url, timeout=15)
         response.raise_for_status()
-        
         data = response.json()
-        
-        # Datos actuales
-        current = data["current_condition"][0]
-        precip_hoy = float(current.get("precipMM", 0))
-        chance_hoy = current.get("chanceofrain")
-        if chance_hoy is None:
-            chance_hoy = 100 if precip_hoy > 0 else 0
-        else:
-            chance_hoy = int(chance_hoy)
-        
-        print(f"🌧️ CONDICIÓN ACTUAL: {precip_hoy}mm - Probabilidad: {chance_hoy}%")
-        
-        # Datos horarios
-        forecast = data["weather"][0]
-        hourly_data = forecast["hourly"]
-        
-        # === LÓGICA DE ENVÍO ===
-        mensaje = None
-        
-        # CRITERIO 1: Resumen a las 6 AM
-        if hora_actual == 6:
-            print("🌅 MODO: Resumen matutino")
-            mensaje = f"🌧️ *Resumen Matutino - Barrancabermeja*\n\n"
-            mensaje += f"📅 HOY:\n• Precipitación: {precip_hoy}mm\n• Probabilidad: {chance_hoy}%\n\n"
-            
-            print("📊 Analizando próximas 12 horas...")
-            horas_riesgo = []
-            
-            for i, hour in enumerate(hourly_data[:12]):
-                precip = float(hour.get("precipMM", 0))
-                chance = hour.get("chanceofrain")
-                hora_utc = int(hour["time"])
-                
-                if chance is None:
-                    chance = 100 if precip > 0 else 0
-                else:
-                    chance = int(chance)
-                
-                # Convertir hora
-                hora_str, hora_num = convertir_hora_utc_a_colombia(hora_utc)
-                
-                print(f"  [{i}] {hora_str}: Precip {precip}mm - Prob {chance}%")
-                
-                if chance > 50 or precip > 0.5:
-                    horas_riesgo.append(f"⏰ {hora_str}: *Precip {precip}mm ({chance}%)*")
-            
-            if horas_riesgo:
-                mensaje += "⚠️ *Horas con riesgo:*\n" + "\n".join(horas_riesgo)
+
+        # Validar estructura mínima
+        if not data.get("weather") or len(data["weather"]) == 0:
+            raise ValueError("No hay datos meteorológicos en la respuesta")
+
+        hourly_data = data["weather"][0].get("hourly", [])
+
+        if not hourly_data:
+            raise ValueError("No hay pronóstico horario disponible")
+
+        alerta = None
+
+        for hour_entry in hourly_data:
+            time_str = hour_entry.get("time", "")
+            chance_str = hour_entry.get("chanceofrain", "0")
+
+            # Parsear hora UTC desde wttr.in
+            h_utc, m_utc = parse_wttr_hour(time_str)
+            if h_utc is None:
+                print(f"  ⚠️  Hora inválida ignorada: '{time_str}'")
+                continue
+
+            # Solo consideramos entradas con minutos = 0 (horas completas)
+            if m_utc != 0:
+                continue
+
+            # Convertir a hora de Colombia
+            hora_col = utc_to_colombia_hour(h_utc, m_utc)
+
+            # Parsear probabilidad de lluvia
+            try:
+                chance = int(chance_str) if chance_str.isdigit() else 0
+            except:
+                chance = 0
+
+            print(f"  Pronóstico → UTC {h_utc:02d}:{m_utc:02d} → COL {hora_col:02d}:00 | Lluvia: {chance}%")
+
+            # ¿Coincide con la hora que buscamos?
+            if hora_col == hora_objetivo:
+                if chance >= UMBRAL_LLUVIA:
+                    alerta = (
+                        f"⏰ *Alerta de Lluvia - {CIUDAD.split(',')[0].title()}*\n\n"
+                        f"¡Alta probabilidad de lluvia en ~1 hora!\n\n"
+                        f"📅 Hora local: {hora_col:02d}:00\n"
+                        f"📊 Probabilidad: *{chance}%*"
+                    )
+                break  # Solo la primera coincidencia (debería ser única)
+
+        if alerta:
+            print(f"\n📩 Enviando alerta:\n{alerta}")
+            if enviar_telegram(alerta):
+                sys.exit(0)
             else:
-                mensaje += "✅ No se esperan lluvias significativas hoy"
-        
-        # CRITERIO 2: Alerta 1 hora antes
+                sys.exit(1)
         else:
-            print("🔍 MODO: Buscando lluvia en próxima hora...")
-            
-            hora_siguiente = (hora_actual + 1) % 24
-            
-            for i, hour in enumerate(hourly_data):
-                precip = float(hour.get("precipMM", 0))
-                chance = hour.get("chanceofrain")
-                hora_utc = int(hour["time"])
-                
-                if chance is None:
-                    chance = 100 if precip > 0 else 0
-                else:
-                    chance = int(chance)
-                
-                # Convertir hora
-                hora_str, hora_num = convertir_hora_utc_a_colombia(hora_utc)
-                
-                print(f"  [{i}] {hora_str} (hora: {hora_num}) - Precip {precip}mm - Prob {chance}%")
-                
-                # ¿Falta exactamente 1 hora?
-                if hora_num == hora_siguiente and (chance > 50 or precip > 0.5):
-                    print(f"  ✓ ALERTA DETECTADA: Lluvia a las {hora_siguiente:02d}:00")
-                    mensaje = f"⏰ *Alerta Inminente - Barrancabermeja*\n\n"
-                    mensaje += f"¡Lluvia intensa en ~1 hora!\n\n"
-                    mensaje += f"⏰ {hora_str}: *Precip {precip}mm ({chance}%)*"
-                    break
-        
-        # CRITERIO 3: Sin alertas
-        if mensaje is None:
-            print("✅ Sin condiciones de alerta")
+            print("✅ No se detectó lluvia ≥{UMBRAL_LLUVIA}% en la próxima hora. Sin alerta.")
             sys.exit(0)
-        
-        # Enviar mensaje
-        print(f"\nMensaje a enviar:\n{mensaje}\n")
-        enviar_telegram(mensaje)
-        sys.exit(0)
-        
+
     except Exception as e:
         print(f"❌ Error crítico: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(0)
+        sys.exit(1)
 
 if __name__ == "__main__":
     revisar_lluvia()
